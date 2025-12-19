@@ -24,8 +24,15 @@ def parse_shader_buffers(shader_code):
 def inject_uniforms(shader_code, is_compute=True):
     """Inject uniform declarations for frame and resolution into shader."""
     # Check if uniforms already exist
-    if 'uniform int frame' not in shader_code and 'uniform uint frame' not in shader_code:
-        uniform_decls = "\nuniform int frame;\nuniform vec2 resolution;\n"
+    has_frame = 'uniform int frame' in shader_code or 'uniform uint frame' in shader_code
+    has_resolution = 'uniform vec2 resolution' in shader_code or 'uniform ivec2 resolution' in shader_code
+    
+    if not has_frame or not has_resolution:
+        uniform_decls = ""
+        if not has_frame:
+            uniform_decls += "uniform int frame;\n"
+        if not has_resolution:
+            uniform_decls += "uniform vec2 resolution;\n"
         
         # Insert after #version directive
         lines = shader_code.split('\n')
@@ -80,22 +87,13 @@ def create_texture(width, height):
     return texture
 
 
-def initialize_output_buffer(texture, width, height):
-    """Initialize the output buffer with random values for Conway's Game of Life."""
-    # Create random initial state (20% alive)
-    data = np.random.choice([0.0, 1.0], size=(height, width, 4), p=[0.8, 0.2]).astype(np.float32)
-    data[:, :, 1:] = data[:, :, 0:1]  # Copy R to G, B, A for visibility
-    
-    glBindTexture(GL_TEXTURE_2D, texture)
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_FLOAT, data)
-
-
 def main():
     parser = argparse.ArgumentParser(description='OpenGL Compute Shader Pipeline')
     parser.add_argument('--width', type=int, default=512, help='Buffer width')
     parser.add_argument('--height', type=int, default=512, help='Buffer height')
     parser.add_argument('--compute', nargs='+', help='Compute shader files (in execution order)')
-    parser.add_argument('--fragment', required=False, help='Fragment shader file')
+    parser.add_argument('--fragment', help='Fragment shader file (optional)')
+    parser.add_argument('--steps', type=int, default=1, help='Number of compute steps per frame (frame-skip)')
     parser.add_argument('--example', action='store_true', help='Run Conway\'s Game of Life example')
     
     args = parser.parse_args()
@@ -120,16 +118,47 @@ def main():
     
     # Example shaders for Conway's Game of Life
     if args.example:
-        compute_source = '''#version 430
+        init_source = '''#version 430
 layout(local_size_x = 16, local_size_y = 16) in;
-layout(rgba32f, binding = 0) uniform image2D userscreen;
-layout(rgba32f, binding = 1) uniform image2D userscreen_copy;
+layout(rgba32f, binding = 0) uniform image2D cells;
+
+// Simple hash function for pseudo-random numbers
+float hash(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+}
 
 void main() {
     ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size = imageSize(userscreen);
+    ivec2 size = imageSize(cells);
     
     if (pos.x >= size.x || pos.y >= size.y) return;
+    
+    // Only initialize on frame 0
+    if (frame > 0) return;
+    
+    // Generate pseudo-random value (20% alive)
+    float random = hash(vec2(pos) + 0.5);
+    float alive = random < 0.2 ? 1.0 : 0.0;
+    
+    imageStore(cells, pos, vec4(alive, alive, alive, 1.0));
+}
+'''
+        
+        compute_source = '''#version 430
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(rgba32f, binding = 0) uniform image2D cells;
+layout(rgba32f, binding = 1) uniform image2D cells_copy;
+
+void main() {
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(cells);
+    
+    if (pos.x >= size.x || pos.y >= size.y) return;
+    
+    // Skip frame 0 (let init shader run first)
+    if (frame == 0) return;
     
     // Count alive neighbors
     int count = 0;
@@ -141,13 +170,13 @@ void main() {
             // Wrap around edges
             neighbor = (neighbor + size) % size;
             
-            vec4 cell = imageLoad(userscreen_copy, neighbor);
+            vec4 cell = imageLoad(cells_copy, neighbor);
             if (cell.r > 0.5) count++;
         }
     }
     
     // Conway's rules
-    vec4 current = imageLoad(userscreen_copy, pos);
+    vec4 current = imageLoad(cells_copy, pos);
     float alive = current.r > 0.5 ? 1.0 : 0.0;
     
     float new_state = 0.0;
@@ -159,22 +188,12 @@ void main() {
         if (count == 3) new_state = 1.0;
     }
     
-    imageStore(userscreen, pos, vec4(new_state, new_state, new_state, 1.0));
+    imageStore(cells, pos, vec4(new_state, new_state, new_state, 1.0));
 }
 '''
         
-        fragment_source = '''#version 430
-out vec4 fragColor;
-layout(rgba32f, binding = 0) uniform image2D userscreen;
-
-void main() {
-    ivec2 pos = ivec2(gl_FragCoord.xy);
-    vec4 color = imageLoad(userscreen, pos);
-    fragColor = color;
-}
-'''
-        
-        compute_sources = [compute_source]
+        fragment_source = None  # Will use default
+        compute_sources = [init_source, compute_source]
     else:
         if not args.compute:
             print("Error: Must specify --compute shaders or use --example")
@@ -185,18 +204,50 @@ void main() {
             with open(compute_file, 'r') as f:
                 compute_sources.append(f.read())
         
-        with open(args.fragment, 'r') as f:
-            fragment_source = f.read()
+        fragment_source = None
+        if args.fragment:
+            with open(args.fragment, 'r') as f:
+                fragment_source = f.read()
     
     # Inject uniforms into all shaders
     compute_sources = [inject_uniforms(src, True) for src in compute_sources]
-    fragment_source = inject_uniforms(fragment_source, False)
     
-    # Parse all compute shaders to find buffers
+    # Parse all compute shaders to find buffers FIRST
     all_buffers = set()
     for compute_src in compute_sources:
         buffers = parse_shader_buffers(compute_src)
         all_buffers.update(buffers)
+    
+    # Default fragment shader if none provided
+    if fragment_source is None:
+        # Use first non-_copy buffer as display buffer
+        display_buffer = None
+        for buf in sorted(all_buffers):
+            if not buf.endswith('_copy'):
+                display_buffer = buf
+                break
+        
+        if display_buffer is None:
+            print("Error: No buffers found to display")
+            sys.exit(1)
+        
+        fragment_source = f'''#version 430
+out vec4 fragColor;
+uniform vec2 resolution;
+layout(rgba32f, binding = 0) uniform image2D {display_buffer};
+
+void main() {{
+    ivec2 pos = ivec2(gl_FragCoord.xy);
+    vec4 color = imageLoad({display_buffer}, pos);
+    fragColor = color;
+}}
+'''
+        print(f"Using default fragment shader to display buffer: {display_buffer}")
+    
+    fragment_source = inject_uniforms(fragment_source, False)
+    
+    # Also check fragment shader for additional buffers
+    all_buffers.update(parse_shader_buffers(fragment_source))
     
     # Also check fragment shader
     all_buffers.update(parse_shader_buffers(fragment_source))
@@ -208,10 +259,6 @@ void main() {
     for buffer_name in all_buffers:
         textures[buffer_name] = create_texture(args.width, args.height)
         print(f"Created texture for buffer: {buffer_name}")
-    
-    # Initialize output buffer with random data if it exists
-    if 'userscreen' in textures:
-        initialize_output_buffer(textures['userscreen'], args.width, args.height)
     
     # Compile compute shaders
     compute_programs = []
@@ -245,38 +292,41 @@ void main() {
     frame_count = 0
     
     while not glfw.window_should_close(window):
-        # Handle _copy buffers: copy parent to _copy before compute shaders run
-        for buffer_name in all_buffers:
-            if buffer_name.endswith('_copy'):
-                parent_name = buffer_name[:-5]  # Remove '_copy'
-                if parent_name in textures:
-                    # Copy parent to _copy buffer
-                    glCopyImageSubData(
-                        textures[parent_name], GL_TEXTURE_2D, 0, 0, 0, 0,
-                        textures[buffer_name], GL_TEXTURE_2D, 0, 0, 0, 0,
-                        args.width, args.height, 1
-                    )
+        for _ in range(args.steps):
+            # Handle _copy buffers: copy parent to _copy before compute shaders run
+            for buffer_name in all_buffers:
+                if buffer_name.endswith('_copy'):
+                    parent_name = buffer_name[:-5]  # Remove '_copy'
+                    if parent_name in textures:
+                        # Copy parent to _copy buffer
+                        glCopyImageSubData(
+                            textures[parent_name], GL_TEXTURE_2D, 0, 0, 0, 0,
+                            textures[buffer_name], GL_TEXTURE_2D, 0, 0, 0, 0,
+                            args.width, args.height, 1
+                        )
+            
+            # Execute compute shaders in sequence
+            for program, frame_loc, res_loc in compute_programs:
+                glUseProgram(program)
+                
+                # Set uniforms
+                if frame_loc >= 0:
+                    glUniform1i(frame_loc, frame_count)
+                if res_loc >= 0:
+                    glUniform2f(res_loc, float(args.width), float(args.height))
+                
+                # Bind all textures to their binding points
+                for binding, (buffer_name, texture) in enumerate(sorted(textures.items())):
+                    glBindImageTexture(binding, texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F)
+                
+                # Dispatch compute shader
+                work_groups_x = (args.width + 15) // 16
+                work_groups_y = (args.height + 15) // 16
+                glDispatchCompute(work_groups_x, work_groups_y, 1)
+                glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)
         
-        # Execute compute shaders in sequence
-        for program, frame_loc, res_loc in compute_programs:
-            glUseProgram(program)
+            frame_count += 1
             
-            # Set uniforms
-            if frame_loc >= 0:
-                glUniform1i(frame_loc, frame_count)
-            if res_loc >= 0:
-                glUniform2f(res_loc, float(args.width), float(args.height))
-            
-            # Bind all textures to their binding points
-            for binding, (buffer_name, texture) in enumerate(sorted(textures.items())):
-                glBindImageTexture(binding, texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F)
-            
-            # Dispatch compute shader
-            work_groups_x = (args.width + 15) // 16
-            work_groups_y = (args.height + 15) // 16
-            glDispatchCompute(work_groups_x, work_groups_y, 1)
-            glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)
-        
         # Render to screen
         glClear(GL_COLOR_BUFFER_BIT)
         glUseProgram(render_program)
@@ -296,8 +346,6 @@ void main() {
         
         glfw.swap_buffers(window)
         glfw.poll_events()
-        
-        frame_count += 1
     
     glfw.terminate()
 
