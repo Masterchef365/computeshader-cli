@@ -51,7 +51,15 @@ def inject_uniforms(shader_code, is_compute=True):
 
 def create_compute_shader(source, frame_uniform, resolution_uniform):
     """Compile a compute shader with uniform locations."""
-    shader = compileShader(source, GL_COMPUTE_SHADER)
+    try:
+        shader = compileShader(source, GL_COMPUTE_SHADER)
+    except Exception as e:
+        try:
+            print(e.args[0])
+        except Exception as _:
+            pass
+
+        raise e
     program = compileProgram(shader)
     
     # Get uniform locations
