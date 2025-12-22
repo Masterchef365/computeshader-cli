@@ -1,0 +1,40 @@
+version: '3'
+
+tasks:
+  install:
+    desc: Install Python requirements
+    cmds:
+      - pip install -r requirements.txt
+
+  life:
+    desc: Run Conway's Game of Life example
+    deps: [install]
+    cmds:
+      - python main.py --compute examples/life/0_init.glsl examples/life/1_life.glsl
+
+  twofield:
+    desc: Run two-field simulation example
+    deps: [install]
+    cmds:
+      - python main.py --compute examples/twofield/twofield.glsl --steps 10 --fragment examples/twofield/nice.frag --width 1024 --height 1024
+
+  wave:
+    desc: Run wave simulation example
+    deps: [install]
+    cmds:
+      - python main.py --compute examples/wave/wave.glsl --fragment examples/wave/nice.frag
+
+  example:
+    desc: Run built-in Conway's Game of Life example
+    deps: [install]
+    cmds:
+      - python main.py --example
+
+  all-examples:
+    desc: Run all examples sequentially
+    deps: [install]
+    cmds:
+      - task: life
+      - task: twofield
+      - task: wave
+      - task: example
