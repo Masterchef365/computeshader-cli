@@ -324,7 +324,11 @@ void main() {
                     glUniform2f(res_loc, float(args.width), float(args.height))
                 
                 # Bind all textures to their binding points
+                if frame_count == 0:
+                    print("Bindings: ")
                 for binding, (buffer_name, texture) in enumerate(sorted(textures.items())):
+                    if frame_count == 0:
+                        print(f"Bind {buffer_name} to {binding}")
                     glBindImageTexture(binding, texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F)
                 
                 # Dispatch compute shader
