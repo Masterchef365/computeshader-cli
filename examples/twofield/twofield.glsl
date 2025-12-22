@@ -5,6 +5,13 @@ layout(rgba32f, binding = 1) uniform image2D wave2;
 layout(rgba32f, binding = 3) uniform image2D wave_copy;
 layout(rgba32f, binding = 2) uniform image2D wave2_copy;
 
+#define grad(img, pos)\
+    -imageLoad(img, pos) * 4.0\
+    + imageLoad(img, pos + ivec2(0, -1))\
+    + imageLoad(img, pos + ivec2(0, 1))\
+    + imageLoad(img, pos + ivec2(-1, 0))\
+    + imageLoad(img, pos + ivec2(1, 0))
+
 const float c = 1./4.; // Courant number
 
 vec2 coord_to_uv(vec2 coord, vec2 resolution) {
@@ -15,7 +22,7 @@ vec2 coord_to_uv(vec2 coord, vec2 resolution) {
 }
 
 float wavepacket(vec2 coord, vec2 k, float falloff) {
-    return exp(-dot(coord, coord)*falloff) * (cos(dot(coord, k)) - sin(dot(coord, k)));
+    return exp(-dot(coord, coord)*falloff) * cos(dot(coord, k));
 }
 
 vec2 normalize_or_zero(vec2 v) {
@@ -48,9 +55,8 @@ float potential(vec2 coord, vec2 resolution) {
     //return 0.0;
 }
 
-vec4 kern(image2D wave_write, image2D wave_read, image2D wave_other) {
+vec4 kern(vec4 center_prev, vec4 center_grad, vec4 other_read, ivec2 size) {
     ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size = imageSize(wave_read);
     
     if (pos.x >= size.x || pos.y >= size.y) return vec4(0);
     
@@ -69,32 +75,20 @@ vec4 kern(image2D wave_write, image2D wave_read, image2D wave_other) {
     }
     
     // Compute kernel - read from previous frame
-    vec4 center_prev = imageLoad(wave_read, pos);
     float center = center_prev.x;
     float prev = center_prev.y;
     bool obstacle = center_prev.z > 0.0;
-    
-    float up = imageLoad(wave_read, pos + ivec2(0, 1)).x;
-    float down = imageLoad(wave_read, pos + ivec2(0, -1)).x;
-    float right = imageLoad(wave_read, pos + ivec2(-1, 0)).x;
-    float left = imageLoad(wave_read, pos + ivec2(1, 0)).x;
-    
+
     float next;
-    
-    // Solve differential equation
-    float ddy = (up - 2.0 * center + down);
-    float ddx = (right - 2.0 * center + left);
     
     if (frame <= 2) {
         // n = 1 special case (frame 2 because frame 0-1 are init)
-        next = center - 0.5 * c * (ddy + ddx);
+        next = center - 0.5 * c * center_grad.x;
     } else {
         float m2 = 1.0;
         float V = potential(fragCoord, iResolution);
-        float del = ddy + ddx;
-        float other_read = imageLoad(wave_other, pos).x;
-        float other_V = other_read*other_read * 50.;
-        float update = del - (m2 + V + other_V) * center;
+        float other_V = other_read.x*other_read.x * 50.;
+        float update = center_grad.x - (m2 + V + other_V) * center;
         next = -prev + 2.0 * center + 0.5 * c * update;
     }
     
@@ -119,8 +113,8 @@ void main() {
         return;
     } 
 
-    vec4 wavenext = kern(wave, wave_copy, wave2_copy);
-    vec4 wave2next = kern(wave2, wave2_copy, wave_copy);
+    vec4 wavenext = kern(imageLoad(wave_copy, pos), grad(wave_copy, pos), imageLoad(wave2_copy, pos), size);
+    vec4 wave2next = kern(imageLoad(wave2_copy, pos), grad(wave2_copy, pos), imageLoad(wave_copy, pos), size);
     imageStore(wave, pos, wavenext);
     imageStore(wave2, pos, wave2next);
 }
