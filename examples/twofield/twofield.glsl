@@ -38,7 +38,7 @@ vec2 normalize_or_zero(vec2 v) {
 }
 
 vec2 init_wave(vec2 coord, vec2 iResolution) {
-    return wavepacket(coord - iResolution.xy/2. - vec2(0, 0), vec2(0.,0.), 1., 0.01);
+    return wavepacket(coord - iResolution.xy/2. - vec2(0, 0), vec2(-1.,0.), 1., 0.01);
 }
 vec2 init_wave2(vec2 coord, vec2 iResolution) {
     return wavepacket(coord - iResolution.xy/2. - vec2(200, 0), vec2(1.0,0.), 1., 0.01);
@@ -91,8 +91,13 @@ vec4 kern(vec4 center_prev, vec4 center_grad, vec4 other_read, ivec2 size) {
     } else {
         float m2 = 1.0;
         float V = potential(fragCoord, iResolution);
-        float other_V = other_read.x*other_read.x * 50.;
-        float update = center_grad.x - (m2 + V + other_V) * center;
+
+        float l1 = 1. / 6.0;
+        float l2 = l1/6.0;
+
+        float other_V = other_read.x*other_read.x * l2;
+        float self_v = center*center*center * l1;
+        float update = center_grad.x - (m2 + V + other_V) * center + self_v;
         next = -prev + 2.0 * center + 0.5 * c * update;
     }
     
