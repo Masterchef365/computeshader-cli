@@ -21,12 +21,17 @@ vec2 coord_to_uv(vec2 coord, vec2 resolution) {
     return uv;
 }
 
-vec2 wavepacket(vec2 coord, vec2 k, float w, float falloff) {
+vec4 wavepacket(vec2 coord, vec2 k, float w, float falloff) {
     float mag = exp(-dot(coord, coord)*falloff);
     float time_phase = c * w;
 
     float space_phase = dot(coord, k);
-    return mag * vec2(cos(space_phase + time_phase), cos(space_phase));
+    return mag * vec4(
+            cos(space_phase + time_phase), 
+            sin(space_phase + time_phase),
+            cos(space_phase), 
+            sin(space_phase)
+    );
 }
 
 vec2 normalize_or_zero(vec2 v) {
@@ -37,11 +42,11 @@ vec2 normalize_or_zero(vec2 v) {
     }
 }
 
-vec2 init_wave(vec2 coord, vec2 iResolution) {
-    return wavepacket(coord - iResolution.xy/2. - vec2(0, 0), vec2(0.,0.), 1., 0.01);
+vec4 init_wave(vec2 coord, vec2 iResolution) {
+    return wavepacket(coord - iResolution.xy/2. - vec2(0, 0), vec2(0.,0.), 1., 0.001);
 }
-vec2 init_wave2(vec2 coord, vec2 iResolution) {
-    return wavepacket(coord - iResolution.xy/2. - vec2(200, 0), vec2(1.0,0.), 1., 0.01);
+vec4 init_wave2(vec2 coord, vec2 iResolution) {
+    return wavepacket(coord - iResolution.xy/2. - vec2(200, 0), vec2(0.0,0.), 1., 0.001);
 }
 
 
@@ -52,14 +57,14 @@ float potential(vec2 coord, vec2 resolution) {
     //V /= 20.;
     //return V;
 
-    //v = coord_to_uv(coord, resolution);
-    //return dot(v,v);
+    v = coord_to_uv(coord, resolution);
+    return dot(v,v);
 
     //return v.y/10. + (v.x-0.5)*(v.x-0.5) / 2.;
     return 0.0;
 }
 
-vec4 kern(vec4 center_prev, vec4 center_grad, vec4 other_read, ivec2 size) {
+vec4 kern(vec4 center_prev, vec2 center_grad, vec2 other_read, ivec2 size) {
     ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
     
     if (pos.x >= size.x || pos.y >= size.y) return vec4(0);
@@ -79,26 +84,24 @@ vec4 kern(vec4 center_prev, vec4 center_grad, vec4 other_read, ivec2 size) {
     }
     
     // Compute kernel - read from previous frame
-    float center = center_prev.x;
-    float prev = center_prev.y;
-    bool obstacle = center_prev.z > 0.0;
+    vec2 center = center_prev.xy;
+    vec2 prev = center_prev.zw;
 
-    float next;
+    vec2 next;
     
     if (frame <= 2) {
         // n = 1 special case (frame 2 because frame 0-1 are init)
-        next = center - 0.5 * c * center_grad.x;
+        next = center - 0.5 * c * center_grad;
     } else {
         float m2 = 1.0;
         float V = potential(fragCoord, iResolution);
-        float other_V = other_read.x*other_read.x * 50.;
-        float update = center_grad.x - (m2 + V + other_V) * center;
+        float other_V = dot(other_read, other_read) * 1.;
+        vec2 self_interact = dot(center, center) * center * 0.0;
+        vec2 update = center_grad - (m2 + V + other_V) * center + self_interact;
         next = -prev + 2.0 * center + 0.5 * c * update;
     }
-    
-    if (obstacle) next = 0.0;
 
-    return vec4(next, center, obstacle ? 1.0 : 0.0, 1.0);
+    return vec4(next, center);
 }
     
 void main() {
@@ -110,15 +113,13 @@ void main() {
 
     // Initialization
     if (frame <= 3) {
-        vec2 k = init_wave(fragCoord, iResolution);
-        imageStore(wave, pos, vec4(k, vec2(0, 1)));
-        vec2 k2 = init_wave2(fragCoord, iResolution);
-        imageStore(wave2, pos, vec4(k2, vec2(0, 1)));
+        imageStore(wave, pos, init_wave(fragCoord, iResolution));
+        imageStore(wave2, pos, init_wave2(fragCoord, iResolution));
         return;
     } 
 
-    vec4 wavenext = kern(imageLoad(wave_copy, pos), grad(wave_copy, pos), imageLoad(wave2_copy, pos), size);
-    vec4 wave2next = kern(imageLoad(wave2_copy, pos), grad(wave2_copy, pos), imageLoad(wave_copy, pos), size);
+    vec4 wavenext = kern(imageLoad(wave_copy, pos), (grad(wave_copy, pos)).xy, imageLoad(wave2_copy, pos).xy, size);
+    vec4 wave2next = kern(imageLoad(wave2_copy, pos), (grad(wave2_copy, pos)).xy, imageLoad(wave_copy, pos).xy, size);
     imageStore(wave, pos, wavenext);
     imageStore(wave2, pos, wave2next);
 }
