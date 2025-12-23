@@ -21,8 +21,12 @@ vec2 coord_to_uv(vec2 coord, vec2 resolution) {
     return uv;
 }
 
-float wavepacket(vec2 coord, vec2 k, float falloff) {
-    return exp(-dot(coord, coord)*falloff) * cos(dot(coord, k));
+vec2 wavepacket(vec2 coord, vec2 k, float w, float falloff) {
+    float mag = exp(-dot(coord, coord)*falloff);
+    float time_phase = c * w;
+
+    float space_phase = dot(coord, k);
+    return mag * vec2(cos(space_phase + time_phase), cos(space_phase));
 }
 
 vec2 normalize_or_zero(vec2 v) {
@@ -33,11 +37,11 @@ vec2 normalize_or_zero(vec2 v) {
     }
 }
 
-float init_wave(vec2 coord, vec2 iResolution) {
-    return wavepacket(coord - iResolution.xy/2. - vec2(0, 0), normalize_or_zero(vec2(0.,0.)), 0.01);
+vec2 init_wave(vec2 coord, vec2 iResolution) {
+    return wavepacket(coord - iResolution.xy/2. - vec2(0, 0), vec2(0.,0.), 1., 0.01);
 }
-float init_wave2(vec2 coord, vec2 iResolution) {
-    return wavepacket(coord - iResolution.xy/3. - vec2(0, 0), normalize_or_zero(vec2(0.,0.)), 0.01);
+vec2 init_wave2(vec2 coord, vec2 iResolution) {
+    return wavepacket(coord - iResolution.xy/2. - vec2(200, 0), vec2(1.0,0.), 1., 0.01);
 }
 
 
@@ -48,11 +52,11 @@ float potential(vec2 coord, vec2 resolution) {
     //V /= 20.;
     //return V;
 
-    v = coord_to_uv(coord, resolution);
-    return dot(v,v);
+    //v = coord_to_uv(coord, resolution);
+    //return dot(v,v);
 
     //return v.y/10. + (v.x-0.5)*(v.x-0.5) / 2.;
-    //return 0.0;
+    return 0.0;
 }
 
 vec4 kern(vec4 center_prev, vec4 center_grad, vec4 other_read, ivec2 size) {
@@ -106,10 +110,10 @@ void main() {
 
     // Initialization
     if (frame <= 3) {
-        float k = init_wave(fragCoord, iResolution);
-        imageStore(wave, pos, vec4(k, k, 0.0, 1.0));
-        float k2 = init_wave2(fragCoord, iResolution);
-        imageStore(wave2, pos, vec4(k2, k2, 0.0, 1.0));
+        vec2 k = init_wave(fragCoord, iResolution);
+        imageStore(wave, pos, vec4(k, vec2(0, 1)));
+        vec2 k2 = init_wave2(fragCoord, iResolution);
+        imageStore(wave2, pos, vec4(k2, vec2(0, 1)));
         return;
     } 
 
