@@ -64,7 +64,7 @@ float potential(vec2 coord, vec2 resolution) {
     return 0.0;
 }
 
-vec4 kern(vec4 center_prev, vec2 center_grad, vec2 other_read, ivec2 size) {
+vec4 kern(vec4 center_prev, vec2 center_grad, vec2 other_read, ivec2 size, float factor) {
     ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
     
     if (pos.x >= size.x || pos.y >= size.y) return vec4(0);
@@ -96,6 +96,10 @@ vec4 kern(vec4 center_prev, vec2 center_grad, vec2 other_read, ivec2 size) {
         float m2 = 1.0;
         float V = potential(fragCoord, iResolution);
         float other_V = dot(other_read, other_read) * 1.;
+        //if (factor > 0.0) {
+            other_V = exp(-other_V*10.);
+        //}
+
         vec2 self_interact = dot(center, center) * center * 0.0;
         vec2 update = center_grad - (m2 + V + other_V) * center + self_interact;
         next = -prev + 2.0 * center + 0.5 * c * update;
@@ -118,8 +122,8 @@ void main() {
         return;
     } 
 
-    vec4 wavenext = kern(imageLoad(wave_copy, pos), (grad(wave_copy, pos)).xy, imageLoad(wave2_copy, pos).xy, size);
-    vec4 wave2next = kern(imageLoad(wave2_copy, pos), (grad(wave2_copy, pos)).xy, imageLoad(wave_copy, pos).xy, size);
+    vec4 wavenext = kern(imageLoad(wave_copy, pos), (grad(wave_copy, pos)).xy, imageLoad(wave2_copy, pos).xy, size, 1.0);
+    vec4 wave2next = kern(imageLoad(wave2_copy, pos), (grad(wave2_copy, pos)).xy, imageLoad(wave_copy, pos).xy, size, 0.0);
     imageStore(wave, pos, wavenext);
     imageStore(wave2, pos, wave2next);
 }

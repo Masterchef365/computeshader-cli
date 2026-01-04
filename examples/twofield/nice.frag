@@ -11,11 +11,11 @@ void main() {
     float mag = dot(w.xy, w.xy);
     float mag2 = dot(w2.xy, w2.xy);
 
-    vec3 color = mag * vec3(0.2, 0.7, 0.5);
-    color += mag2 * vec3(0.7, 0.2, 0.0);
+    vec3 color = mag * vec3(1,0,0);//vec3(0.2, 0.7, 0.5);
+    color += mag2 * vec3(0,1,0);//vec3(0.7, 0.2, 0.0);
 
     //color = abs(vec3(w.xy, w2.x));
-    color *= 50.;
+    color *= 10.;
 
     fragColor = vec4(color, 1.);
 }
