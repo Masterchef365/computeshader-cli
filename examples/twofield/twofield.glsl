@@ -100,10 +100,11 @@ vec4 kern(vec4 center_prev, vec2 center_grad, vec2 other_read, ivec2 size, float
         float other_V = dot(other_read, other_read);
         //other_V = exp(-other_V);
 
-        float self_interact = dot(center, center);
-        self_interact = exp(-other_V);
+        float r2 = dot(center, center);
+        float self_interact = r2/2.;
+        self_interact += exp(-r2);
 
-        float interact = self_interact + other_V*10.;
+        float interact = self_interact + other_V;
 
         vec2 update = center_grad - (m2 + V + interact) * center;
         next = -prev + 2.0 * center + 0.5 * c * update;
