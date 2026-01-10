@@ -97,7 +97,7 @@ vec4 kern(vec4 center_prev, vec2 center_grad, vec2 other_read, ivec2 size, float
         float V = potential(fragCoord, iResolution);
         float other_V = dot(other_read, other_read) * 1.;
         //if (factor > 0.0) {
-            other_V = exp(-other_V*10.);
+            other_V = exp(-other_V);
         //}
 
         vec2 self_interact = dot(center, center) * center * 0.0;
