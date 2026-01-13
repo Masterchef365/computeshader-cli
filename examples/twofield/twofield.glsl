@@ -13,6 +13,7 @@ layout(rgba32f, binding = 2) uniform image2D wave2_copy;
     + imageLoad(img, pos + ivec2(1, 0))
 
 const float c = 1./4.; // Courant number
+const float K = 1024.0;
 
 vec2 coord_to_uv(vec2 coord, vec2 resolution) {
     vec2 uv = coord / resolution;
@@ -43,10 +44,10 @@ vec2 normalize_or_zero(vec2 v) {
 }
 
 vec4 init_wave(vec2 coord, vec2 iResolution) {
-    return wavepacket(coord - iResolution.xy/2. - vec2(0, 0), vec2(-0.5,0.), 1., 0.001);
+    return wavepacket(coord - iResolution.xy/2. - vec2(0, 0), vec2(-0.5,0.), 1., 0.001)*K;
 }
 vec4 init_wave2(vec2 coord, vec2 iResolution) {
-    return wavepacket(coord - iResolution.xy/2. - vec2(200, 0), vec2(0.0,0.), 1., 0.001);
+    return wavepacket(coord - iResolution.xy/2. - vec2(200, 0), vec2(0.0,0.), 1., 0.001)*K;
 }
 
 
@@ -97,17 +98,18 @@ vec4 kern(vec4 center_prev, vec2 center_grad, vec2 other_read, ivec2 size, float
 
         float V = potential(fragCoord, iResolution);
 
-        float other_V = dot(other_read, other_read);
+        float other_V = dot(other_read, other_read)/K/K;
         //other_V = exp(-other_V);
 
         float r2 = dot(center, center);
-        float self_interact = r2/1.5;
-        self_interact += exp(-r2);
+        float self_interact = r2/1.5/K/K;
+        self_interact += exp(-r2/K/K);
 
         float interact = self_interact + other_V;
 
         vec2 update = center_grad - (m2 + V + interact) * center;
         next = -prev + 2.0 * center + 0.5 * c * update;
+        next = floor(next);
     }
 
     return vec4(next, center);

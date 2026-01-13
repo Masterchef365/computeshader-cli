@@ -15,7 +15,7 @@ void main() {
     color += mag2 * vec3(0,1,0);//vec3(0.7, 0.2, 0.0);
 
     //color = abs(vec3(w.xy, w2.x));
-    color *= 10.;
+    color /= pow(1024., 2.0) / 10.;
 
     fragColor = vec4(color, 1.);
 }
